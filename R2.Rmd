@@ -1,0 +1,539 @@
+---
+title: "Programming Individual Assignment"
+output: html_document
+date: "2024-12-03"
+---
+
+Import Packages
+
+```{r}
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(caret)
+library(RColorBrewer)
+library(stats)
+library(cluster)
+library(ggplot2)
+library(scales)
+library(gridExtra)
+library(psych)
+library(dplyr)
+```
+
+Import Dataset
+
+```{r setup, include=FALSE}
+# Download the dataset from GitHub
+url <- "https://raw.githubusercontent.com/fongbubble/UoB_MGRCM0034_Car_Sales/main/car_sales.csv"
+csv_file_path <- tempfile(fileext = ".csv")
+download.file(url, destfile = csv_file_path)
+print(paste("CSV File Path:", csv_file_path))
+
+# Read the CSV file
+df <- read_csv(csv_file_path)
+head(df, 5)
+```
+
+Dataset information
+```{r}
+#Explore the dataset (df)
+str(df)
+```
+
+Checks for NaNs 
+```{r}
+# Count the number of NaNs in each column
+colSums(is.na(df))
+```
+Checks for Duplicate
+```{r}
+# Count the number of duplicate rows
+sum(duplicated(df))
+```
+
+Descriptive Visualisation
+
+Customer Demographic
+
+```{r}
+# Define a custom color palette for genders
+custom_palette <- c('Male' = 'steelblue', 'Female' = 'salmon')
+
+# Calculate gender distribution
+gender_counts <- df %>% count(Gender)
+
+# Create a pie chart to visualise the gender distribution
+ggplot(gender_counts, aes(x = "", y = n, fill = Gender)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = custom_palette) +
+  labs(title = "Gender Distribution", fill = "Gender") +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 14, hjust = 0.5),
+    legend.text = element_text(size = 14)
+  ) +
+  geom_text(aes(label = scales::percent(n / sum(n), accuracy = 0.1)), 
+            position = position_stack(vjust = 0.5), size = 5)
+```
+
+```{r}
+#set up a new dataset
+car_data <- read_csv(csv_file_path)
+
+# Create the histogram with KDE
+plot <- ggplot(car_data, aes(x = `Annual Income`)) +
+  geom_histogram(bins = 290, fill = "pink", alpha = 3) +
+  geom_density(aes(y = ..count..), color = "steelblue", size = 0.5) +
+  labs(x = "Annual Income (10 Millions)", y = "Count", title = "Annual Income Distribution") +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.x = element_text(size = 20, angle = 90, hjust = 1),
+    axis.text.y = element_text(size = 20),
+    axis.title.x = element_text(size = 30),
+    axis.title.y = element_text(size = 30),
+    plot.title = element_text(size = 30, hjust = 0.5)
+  ) +
+  scale_x_continuous(name = "Annual Income", limits = c(0, 1000000), breaks = seq(0, 11200000, by = 50000))
+
+# Print the plot
+print(plot)
+
+# Save the plot as a PNG file
+ggsave("annual_income_distribution.png", plot = plot, width = 10, height = 8, dpi = 300)
+```
+
+Car in a market
+
+```{r}
+
+# Load the new dataset 
+car_data <- read_csv(csv_file_path)
+
+# Create a custom function to wrap long text labels
+wrap_text <- function(text, width) {
+  sapply(text, function(x) paste(strwrap(x, width = width), collapse = "\n"))
+}
+
+# Plot 1: Distribution of Price with trendline
+plot1 <- ggplot(car_data, aes(x = `Price ($)`)) +
+  geom_histogram(bins = 50, fill = "#993366", alpha = 0.7) +
+  labs(title = "Distribution of Car Price ($)", x = "Price ($)", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 40),
+        axis.title.x = element_text(size = 40),
+        axis.title.y = element_text(size = 40),
+        axis.text.x = element_text(size = 40),
+        axis.text.y = element_text(size = 40))
+
+# Plot 2: Pie chart for Body Style distribution
+body_style_counts <- car_data %>% count(`Body Style`)
+plot2 <- ggplot(body_style_counts, aes(x = "", y = n, fill = `Body Style`)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = c("skyblue", "lightblue", "deepskyblue", "dodgerblue", "steelblue")) +
+  labs(title = "Distribution of Vehicles by Body Style", fill = "Body Style") +
+  theme_void() +
+  theme(plot.title = element_text(size = 40),
+        legend.title = element_text(size = 40),
+        legend.text = element_text(size = 40)) +
+  geom_text(aes(label = scales::percent(n / sum(n))), position = position_stack(vjust = 0.5), size = 13)
+
+# Plot 3: Stacked bar chart for Color and Body Style
+color_body_pivot <- car_data %>% count(Color, `Body Style`) %>% spread(`Body Style`, n, fill = 0)
+color_body_pivot_long <- color_body_pivot %>% gather(`Body Style`, value, -Color)
+plot3 <- ggplot(color_body_pivot_long, aes(x = Color, y = value, fill = `Body Style`)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = scales::hue_pal()(length(unique(car_data$`Body Style`)))) +
+  labs(title = "Vehicle Colors by Body Style", x = "Color", y = "Number of Vehicles") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 40),
+           axis.title.x = element_text(size = 40),
+        axis.title.y = element_text(size = 40),
+        axis.text.x = element_text(angle = 50, hjust = 1, size = 30),  # Increased size
+        axis.text.y = element_text(size = 40),  # Increased size
+        legend.title = element_text(size = 40),
+        legend.text = element_text(size = 40))
+
+# Plot 4: Pie Chart for Transmission (Auto vs Manual)
+transmission_counts <- car_data %>% count(Transmission)
+plot4 <- ggplot(transmission_counts, aes(x = "", y = n, fill = Transmission)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = c("skyblue", "steelblue")) +
+  labs(title = "Transmission Proportion: Auto vs Manual", fill = "Transmission") +
+  theme_void() +
+  theme(plot.title = element_text(size = 40),
+        legend.title = element_text(size = 40),
+        legend.text = element_text(size = 40)) +
+  geom_text(aes(label = scales::percent(n / sum(n))), position = position_stack(vjust = 0.5), size = 13)
+
+# Arrange all plots together
+grid.arrange(plot1, plot2, plot3, plot4, ncol = 2)
+
+
+```
+
+Descriptive analysis
+
+```{r}
+# Function to calculate mode
+calculate_mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Generate descriptive statistics for the selected features
+descriptive_stats <- df %>%
+  summarise(
+    Variable = c("Annual Income", "Price ($)", "Unique Brands", "Unique Models"),
+    Mean = c(mean(`Annual Income`, na.rm = TRUE), mean(`Price ($)`, na.rm = TRUE), n_distinct(Company), n_distinct(Model)),
+    Median = c(median(`Annual Income`, na.rm = TRUE), median(`Price ($)`, na.rm = TRUE), NA, NA),
+    Mode = c(calculate_mode(`Annual Income`), calculate_mode(`Price ($)`), NA, NA),
+    SD = c(sd(`Annual Income`, na.rm = TRUE), sd(`Price ($)`, na.rm = TRUE), NA, NA),
+    Min = c(min(`Annual Income`, na.rm = TRUE), min(`Price ($)`, na.rm = TRUE), NA, NA),
+    Max = c(max(`Annual Income`, na.rm = TRUE), max(`Price ($)`, na.rm = TRUE), NA, NA)
+  )
+
+print(descriptive_stats)
+
+```
+```{r}
+# Count the number of unique brands
+num_unique_brands <- n_distinct(df$Company)
+print(paste("Number of unique brands:", num_unique_brands))
+
+# Count the number of unique models
+num_unique_models <- n_distinct(df$Model)
+print(paste("Number of unique models:", num_unique_models))
+```
+
+Correlation Heat Map
+
+```{r}
+# Copy the data frame
+encoded_df <- df
+
+# Encode categorical variables
+for (column in colnames(encoded_df)) {
+  if (is.factor(encoded_df[[column]]) || is.character(encoded_df[[column]])) {
+    encoded_df[[column]] <- as.numeric(factor(encoded_df[[column]]))
+  }
+}
+
+# Calculate the correlation matrix
+corr_matrix <- cor(encoded_df, use = "complete.obs")
+
+# Plot the correlation heatmap
+heatmap_data <- melt(corr_matrix)
+ggplot(data = heatmap_data, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_distiller(palette = "Spectral", direction = 1) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Correlation Heatmap for All Encoded Variables", fill = "Correlation") +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 3)
+```
+
+Boxplot
+
+```{r}
+# Create the boxplot
+ggplot(df, aes(x = Dealer_Region, y = `Price ($)`)) +
+  geom_boxplot(aes(fill = Dealer_Region)) +
+  scale_fill_brewer(palette = "Spectral") +
+  labs(title = "Effect of Dealer Region on Car Price",
+       x = "Dealer Region",
+       y = "Price ($)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Perform linear regression
+model <- lm(`Price ($)` ~ Dealer_Region, data = df)
+
+# Print the summary of the model
+summary(model)
+```
+
+Label Encoder
+
+```{r}
+# Columns to encode
+columns_to_encode <- c('Gender', 'Transmission', 'Body Style', 'Company', 'Model')
+
+# Encode columns
+for (col in columns_to_encode) {
+  if (col %in% colnames(df) && !all(is.na(df[[col]]))) {
+    df[[paste0(gsub(" ", "_", col), '_Encoded')]] <- as.numeric(factor(df[[col]]))
+  } else {
+    warning(paste("Column", col, "is either missing or contains only NA values."))
+  }
+}
+
+# Verify the encoded columns
+head(df)
+```
+
+StandardScaler
+
+```{r}
+# Add Gender, Transmission, and Body Style to the feature matrix
+X1 <- df %>%
+  select(`Annual Income`, `Price ($)`, Company_Encoded, Model_Encoded)
+
+# Scale the features
+scaler <- preProcess(X1, method = c("center", "scale"))
+X1_scaled <- predict(scaler, X1)
+
+# View the first few rows of the scaled feature matrix
+head(X1_scaled)
+```
+
+Scatter plot
+
+```{r}
+# Create the scatter plot
+ggplot(df, aes(x = `Annual Income`, y = `Price ($)`)) +
+  geom_point(color = 'steelblue') +
+  labs(title = 'Scatter plot of Annual Income vs. Price ($)',
+       x = 'Annual Income',
+       y = 'Price ($)') +
+  theme_minimal() +
+  scale_x_continuous(labels = scales::comma)
+```
+
+
+
+```{r}
+#reverse values in X1_pca
+X1_pca <- as.data.frame(X1_pca)
+
+X1_pca$PC2 <- -X1_pca$PC2
+print(X1_pca)
+
+```
+
+Performing hyperparameter tuning for K-Means using caret package
+
+```{r}
+
+# Define a function to perform K-Means clustering and return the total within-cluster sum of squares
+kmeans_wss <- function(k, data, nstart = 25, iter.max = 300, algorithm = "Hartigan-Wong") {
+  kmeans(data, centers = k, nstart = nstart, iter.max = iter.max, algorithm = algorithm)$tot.withinss
+}
+
+# Define parameter grid for hyperparameter tuning
+param_grid <- expand.grid(
+  centers = c(3, 4, 5, 6, 7, 8, 9),
+  nstart = c(25, 50),
+  iter.max = c(300),
+  algorithm = c("Hartigan-Wong", "Lloyd", "Forgy", "MacQueen")
+)
+
+# Perform grid search to find the best parameters for K-Means
+results <- apply(param_grid, 1, function(params) {
+  k <- as.numeric(params["centers"])
+  nstart <- as.numeric(params["nstart"])
+  iter.max <- as.numeric(params["iter.max"])
+  algorithm <- as.character(params["algorithm"])
+  
+  wss <- kmeans_wss(k, X1_pca, nstart = nstart, iter.max = iter.max, algorithm = algorithm)
+  c(k, nstart, iter.max, algorithm, wss)
+})
+
+# Convert results to a data frame
+results_df <- as.data.frame(t(results))
+colnames(results_df) <- c("centers", "nstart", "iter.max", "algorithm", "wss")
+
+# Find the best parameters (minimum within-cluster sum of squares)
+best_params <- results_df[which.min(results_df$wss), ]
+print("Best Parameters:")
+print(best_params)
+
+# Use the best model identified by grid search
+best_algorithm <- kmeans(X1_pca, centers = as.numeric(best_params["centers"]), nstart = as.numeric(best_params["nstart"]), iter.max = as.numeric(best_params["iter.max"]), algorithm = as.character(best_params["algorithm"]))
+```
+
+Feature Contribution
+
+```{r}
+# Assuming components is a matrix with feature contributions
+# and features is a vector of feature names
+components_df <- as.data.frame(t(components))
+colnames(components_df) <- features
+components_df$Principal_Component <- rownames(components_df)
+
+# Convert the data frame to long format for ggplot2
+components_long <- melt(components_df, id.vars = "Principal_Component")
+colnames(components_long) <- c("Principal_Component", "Feature", "Contribution")
+
+# Define spectral colors
+spectral_colors <- brewer.pal(n = length(features), name = "Spectral")
+
+# Create the bar plot
+ggplot(components_long, aes(x = Principal_Component, y = Contribution, fill = Feature)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = spectral_colors) +
+  labs(title = "Feature Contribution to Each Principal Component",
+       x = "Principal Components",
+       y = "Contribution") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+        legend.title = element_text(face = "bold"),
+        legend.position = "top",
+        legend.box.background = element_rect(color = "black", fill = "white", size = 0.5)) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+GridSearch to tune hyper parameter
+
+```{r}
+# Define parameter grid for hyper parameter tuning
+param_grid <- expand.grid(
+  n_clusters = c(3, 4, 5, 6, 7, 8, 9),
+  init = c('k-means++', 'random'),
+  max_iter = c(300)
+)
+
+# Function to perform K-Means clustering and return total within-cluster sum of squares
+kmeans_clustering <- function(data, centers, nstart, iter.max) {
+  kmeans(data, centers = centers, nstart = nstart, iter.max = iter.max)$tot.withinss
+}
+
+# Perform grid search manually
+best_score <- Inf
+best_params <- NULL
+
+for (i in 1:nrow(param_grid)) {
+  params <- param_grid[i, ]
+  score <- kmeans_clustering(
+    data = X1_pca,
+    centers = params$n_clusters,
+    nstart = ifelse(params$init == 'k-means++', 10, 1),
+    iter.max = params$max_iter
+  )
+  
+  if (score < best_score) {
+    best_score <- score
+    best_params <- params
+  }
+}
+
+print("Best Parameters:")
+print(best_params)
+```
+
+PCA with K-means clustering
+
+```{r}
+# Fit the best K-Means algorithm and assign cluster labels to DataFrame
+best_k <- best_params$n_clusters
+best_init <- best_params$init
+best_max_iter <- best_params$max_iter
+
+set.seed(24150)
+kmeans_result <- kmeans(
+  X1_pca, 
+  centers = best_k, 
+  nstart = ifelse(best_init == 'k-means++', 10, 1), 
+  iter.max = best_max_iter
+)
+
+# Ensure the Cluster column is correctly assigned
+df$Cluster <- kmeans_result$cluster
+
+# Define descriptive names for each cluster
+custom_cluster_names <- c(
+  "High-Income, Luxury Seekers", 
+  "Mid-Income, Practical Buyers", 
+  "High-Income, Brand-Focused Buyers",
+  "Mid-Income, Budget-Conscious Buyers",
+  "Low-Income, Budget-Focused Buyers",
+  "High-Income, Cost-Conscious Buyers",
+  "Mid-Income, Brand-Focused Buyers",
+  "Low-Income, Value-Driven Buyers",
+  "Low-Income, Practical Buyers"
+)
+
+# Create a mapping from cluster numbers to descriptive names
+cluster_mapping <- setNames(custom_cluster_names, 1:best_k)
+df$ClusterName <- cluster_mapping[df$Cluster]
+
+# Generate car brand and model recommendations for each cluster
+cluster_recommendations <- list()
+for (cluster in 1:best_k) {
+  cluster_data <- df[df$Cluster == cluster, ]
+  recommended_brands <- head(sort(table(cluster_data$Company), decreasing = TRUE), 3)
+  brand_model_recommendations <- list()
+  for (brand in names(recommended_brands)) {
+    top_models <- head(sort(table(cluster_data[cluster_data$Company == brand, ]$Model), decreasing = TRUE), 1)
+    brand_model_recommendations[[brand]] <- names(top_models)
+  }
+  cluster_recommendations[[cluster]] <- brand_model_recommendations
+}
+
+# Print the car brand and model recommendations for each cluster
+cat("Car Brand and Model Recommendations for Each Cluster:\n")
+for (cluster in 1:best_k) {
+  cluster_name <- custom_cluster_names[cluster]
+  cat(paste0(cluster_name, ":\n"))
+  for (brand in names(cluster_recommendations[[cluster]])) {
+    models <- paste(cluster_recommendations[[cluster]][[brand]], collapse = ", ")
+    cat(paste0("  ", brand, ": ", models, "\n"))
+  }
+}
+
+# Create mesh grid for visualizing K-Means clustering boundaries
+x_min <- min(X1_pca[, 1]) - 1
+x_max <- max(X1_pca[, 1]) + 1
+y_min <- min(X1_pca[, 2]) - 1
+y_max <- max(X1_pca[, 2]) + 1
+xx <- seq(x_min, x_max, by = 0.05)
+yy <- seq(y_min, y_max, by = 0.05)
+grid <- expand.grid(Var1 = xx, Var2 = yy)
+
+# Manually assign cluster labels to each point in the mesh grid
+assign_cluster <- function(point, centroids) {
+  distances <- apply(centroids, 1, function(centroid) sum((point - centroid)^2))
+  return(which.min(distances))
+}
+
+centroids1 <- kmeans_result$centers
+grid$Cluster <- apply(grid, 1, assign_cluster, centroids = centroids1)
+grid$ClusterName <- cluster_mapping[grid$Cluster]
+
+# Define the order of clusters for the legend
+cluster_order <- c(
+  "High-Income, Luxury Seekers",
+  "High-Income, Brand-Focused Buyers",
+  "High-Income, Cost-Conscious Buyers",
+  "Mid-Income, Brand-Focused Buyers",
+  "Mid-Income, Practical Buyers",
+  "Mid-Income, Budget-Conscious Buyers",
+  "Low-Income, Value-Driven Buyers",
+  "Low-Income, Practical Buyers",
+  "Low-Income, Budget-Focused Buyers"
+)
+
+# Plot PCA scatter plot with K-Means clustering
+library(ggplot2)
+library(RColorBrewer)
+
+ggplot() +
+  geom_tile(data = grid, aes(x = Var1, y = Var2, fill = factor(ClusterName, levels = cluster_order)), alpha = 0.3) +
+  geom_point(data = as.data.frame(X1_pca), aes(x = PC1, y = PC2, color = factor(df$ClusterName, levels = cluster_order)), alpha = 0.8) +
+  geom_point(data = as.data.frame(centroids1), aes(x = PC1, y = PC2), color = 'red', size = 3, shape = 8) +
+  scale_fill_manual(values = brewer.pal(n = best_k, name = "Spectral"), breaks = cluster_order) +
+  scale_color_manual(values = brewer.pal(n = best_k, name = "Spectral"), breaks = cluster_order) +
+  labs(title = 'PCA Scatter Plot with K-Means Clustering',
+       x = 'PC1: Car Preference & Affordability Component',
+       y = 'PC2: Income Component',
+       fill = 'Cluster Labels',
+       color = 'Cluster Labels') +
+  theme_minimal() +
+  theme(legend.position = 'right')
+
+```
+
+In this version, I've explicitly named the columns `Var1` and `Var2` in the `grid` data frame. This should resolve the error and allow `ggplot` to correctly interpret the aesthetics. Let me know if this works! \`\`\`
